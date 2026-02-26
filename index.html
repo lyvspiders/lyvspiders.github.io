@@ -2,55 +2,208 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>BARYTAN</title>
+  <title>BARYTAN Demo</title>
 </head>
-<body style="font-family:Arial; max-width:800px; margin:40px auto;">
+<body style="font-family:Arial; max-width:900px; margin:40px auto;">
 
-<h1>BARYTAN Demo</h1>
+  <h1>BARYTAN Demo</h1>
 
-<p>Server:</p>
-<input id="url" style="width:100%" 
-value="https://barytan-api.taissiyayena.workers.dev">
+  <h2>Server</h2>
+  <input id="url" style="width:100%"
+         value="https://barytan-api.taissiyayena.workers.dev">
+  <br><br>
+  <button onclick="ping()">Ping Server</button>
+  <pre id="healthOut"></pre>
 
-<br><br>
+  <hr>
 
-<button onclick="ping()">Ping Server</button>
-<br><br>
-<textarea id="inputText" style="width:100%;height:120px;"
-placeholder="Введите текст консультации..."></textarea>
+  <h2>A) Speech → Text (ASR)</h2>
 
-<br><br>
-<button onclick="extractText()">Run Extract</button>
-<pre id="out"></pre>
+  <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+    <button id="btnRec" onclick="startRecording()">🎙️ Record</button>
+    <button id="btnStop" onclick="stopRecording()" disabled>⏹ Stop</button>
+
+    <span>или</span>
+
+    <input id="audioFile" type="file" accept="audio/*">
+    <button onclick="transcribe()">📝 Transcribe</button>
+  </div>
+
+  <p style="color:#555; margin-top:8px;">
+    Подсказка: если микрофон не даёт доступ — проверь разрешения браузера.
+  </p>
+
+  <pre id="asrOut"></pre>
+
+  <hr>
+
+  <h2>B) Extract → JSON</h2>
+  <textarea id="inputText" style="width:100%; height:160px;"
+    placeholder="Тут появится расшифровка речи или вставь текст консультации вручную..."></textarea>
+  <br><br>
+
+  <label>Template:</label>
+  <select id="template">
+    <option value="soap">SOAP</option>
+  </select>
+
+  <button onclick="extractText()">Run Extract</button>
+
+  <pre id="jsonOut"></pre>
+
+  <hr>
+
+  <h2>C) Document (HTML) → Print to PDF</h2>
+
+  <div id="doc" style="border:1px solid #ddd; padding:16px; border-radius:10px;">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+      <div>
+        <h3 style="margin:0;">SOAP Note</h3>
+        <div style="color:#666; font-size:12px;">BARYTAN Demo Document</div>
+      </div>
+      <button onclick="window.print()">🖨 Print to PDF</button>
+    </div>
+
+    <div style="margin-top:14px;">
+      <h4 style="margin:10px 0 4px;">S — Subjective (Жалобы)</h4>
+      <div id="docS" style="white-space:pre-wrap; background:#fafafa; padding:10px; border-radius:8px;"></div>
+
+      <h4 style="margin:10px 0 4px;">H — History (Анамнез)</h4>
+      <div id="docH" style="white-space:pre-wrap; background:#fafafa; padding:10px; border-radius:8px;"></div>
+
+      <h4 style="margin:10px 0 4px;">O — Objective (Объективно)</h4>
+      <div id="docO" style="white-space:pre-wrap; background:#fafafa; padding:10px; border-radius:8px;"></div>
+
+      <h4 style="margin:10px 0 4px;">A — Assessment (Оценка)</h4>
+      <div id="docA" style="white-space:pre-wrap; background:#fafafa; padding:10px; border-radius:8px;"></div>
+
+      <h4 style="margin:10px 0 4px;">P — Plan (План)</h4>
+      <div id="docP" style="white-space:pre-wrap; background:#fafafa; padding:10px; border-radius:8px;"></div>
+    </div>
+
+    <div id="docMeta" style="margin-top:14px; color:#666; font-size:12px;"></div>
+  </div>
 
 <script>
-async function ping(){
-  const base = document.getElementById("url").value;
-  const r = await fetch(base + "/health");
-  const data = await r.json();
-  document.getElementById("out").textContent =
-    JSON.stringify(data,null,2);
-}
+  let mediaRecorder = null;
+  let recordedBlob = null;
+
+  function baseUrl() {
+    return document.getElementById("url").value.trim().replace(/\/$/, "");
+  }
+
+  async function ping() {
+    const r = await fetch(baseUrl() + "/health");
+    const data = await r.json();
+    document.getElementById("healthOut").textContent = JSON.stringify(data, null, 2);
+  }
+
+  // ===== Mic recording =====
+  async function startRecording() {
+    recordedBlob = null;
+    document.getElementById("asrOut").textContent = "";
+
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorder = new MediaRecorder(stream);
+
+    const chunks = [];
+    mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
+
+    mediaRecorder.onstop = () => {
+      recordedBlob = new Blob(chunks, { type: chunks[0]?.type || "audio/webm" });
+      document.getElementById("asrOut").textContent =
+        "✅ Запись готова. Нажми Transcribe (или можешь загрузить файл).";
+    };
+
+    mediaRecorder.start();
+
+    document.getElementById("btnRec").disabled = true;
+    document.getElementById("btnStop").disabled = false;
+  }
+
+  function stopRecording() {
+    if (!mediaRecorder) return;
+    mediaRecorder.stop();
+    document.getElementById("btnRec").disabled = false;
+    document.getElementById("btnStop").disabled = true;
+  }
+
+  // ===== ASR call =====
+  async function transcribe() {
+    const out = document.getElementById("asrOut");
+    out.textContent = "⏳ Отправляю аудио на ASR...";
+
+    // 1) берём файл: либо из upload, либо записанный
+    const fileInput = document.getElementById("audioFile");
+    let file = fileInput.files?.[0] || null;
+
+    if (!file && recordedBlob) {
+      // даём имя, чтобы серверу было проще
+      file = new File([recordedBlob], "recording.webm", { type: recordedBlob.type });
+    }
+
+    if (!file) {
+      out.textContent = "❌ Нет аудио. Запиши через микрофон или выбери файл.";
+      return;
+    }
+
+    // 2) multipart/form-data
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("language", "ru"); // если твой worker использует язык
+
+    const r = await fetch(baseUrl() + "/asr", {
+      method: "POST",
+      body: fd
+    });
+
+    const data = await r.json().catch(() => ({}));
+
+    if (!r.ok) {
+      out.textContent = "❌ ASR error:\n" + JSON.stringify(data, null, 2);
+      return;
+    }
+
+    out.textContent = "✅ ASR OK:\n" + JSON.stringify(data, null, 2);
+
+    // ожидаем, что воркер вернёт поле text (или transcript)
+    const text = data.text || data.transcript || "";
+    if (text) document.getElementById("inputText").value = text;
+  }
+
+  // ===== Extract + render doc =====
   async function extractText() {
-  const base = document.getElementById("url").value;
-  const text = document.getElementById("inputText").value;
+    const out = document.getElementById("jsonOut");
+    out.textContent = "⏳ Extracting...";
 
-  const r = await fetch(base + "/extract", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-   body: JSON.stringify({
-  template: "soap",
-  transcript: text
-})
-  });
+    const text = document.getElementById("inputText").value;
+    const template = document.getElementById("template").value;
 
-  const data = await r.json();
-  document.getElementById("out").textContent =
-    JSON.stringify(data, null, 2);
-}
+    const r = await fetch(baseUrl() + "/extract", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        template: template,
+        transcript: text
+      })
+    });
+
+    const data = await r.json().catch(() => ({}));
+    out.textContent = JSON.stringify(data, null, 2);
+
+    // Рендерим документ, даже если LLM не сработал:
+    const d = data.data || {};
+    document.getElementById("docS").textContent = d.chief_complaint || "(пусто)";
+    document.getElementById("docH").textContent = d.history || "(пусто)";
+    document.getElementById("docO").textContent = d.objective || "(пусто)";
+    document.getElementById("docA").textContent = d.assessment || "(пусто)";
+    document.getElementById("docP").textContent = d.plan || "(пусто)";
+
+    const engine = data.__engine || "unknown";
+    const miss = (data.missing_fields || []).join(", ");
+    document.getElementById("docMeta").textContent =
+      `Engine: ${engine} | Missing: ${miss || "none"}`;
+  }
 </script>
-
 </body>
 </html>
