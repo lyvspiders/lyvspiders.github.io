@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>BARYTAN</title>
+</head>
+<body style="font-family:Arial; max-width:800px; margin:40px auto;">
+
+<h1>BARYTAN Demo</h1>
+
+<p>Server:</p>
+<input id="url" style="width:100%" 
+value="https://barytan-api.taissiyayena.workers.dev">
+
+<br><br>
+
+<button onclick="ping()">Ping Server</button>
+
+<pre id="out"></pre>
+
+<script>
+async function ping(){
+  const base = document.getElementById("url").value;
+  const r = await fetch(base + "/health");
+  const data = await r.json();
+  document.getElementById("out").textContent =
+    JSON.stringify(data,null,2);
+}
+</script>
+
+</body>
+</html>
